@@ -481,7 +481,6 @@ vector<double> generate_space(vector<pair<double,double>> query_trajectory,doubl
     return space;
 }
 
-
 set<string> purn_1(shared_ptr<ZRedisConnection> con,set<string> trajectory,double Threshold,vector<pair<double,double>> query_traj){
     set<string> ans;
     for(set<string>::iterator i=trajectory.begin();i!=trajectory.end();i++){
@@ -574,7 +573,6 @@ set<string> Tbsimilar_trajectory_search(shared_ptr<ZRedisConnection> con,string 
     return similarity_verify(con,Candidate_trajectory_2,Threshold,query_traj);
 } 
 
-
 double lowerbound(vector<pair<double,double>> query_traj,int space_key){
 
 }
@@ -588,16 +586,36 @@ priority_queue<TrajectorySimilarity> Top_k_similar_trajectory_search(shared_ptr<
     int index=0;
     int positioncode=0;
     if(initial_indexStr[0]!='2'){
-       positioncode=initial_index%10;
-       if(!positioncode) positioncode=10;
-       index=initial_index/10;
+         positioncode=initial_index%10;
+         if(!positioncode) positioncode=10;
+         index=initial_index/10;
     }
     else{
-      positioncode=11;
-      index=changeFirstDigit_1(initial_index);
+        positioncode=11;
+        index=changeFirstDigit_1(initial_index);
     }
+    int current_index=index;
     while(true){
-        
+        string cmd="keys "+to_string(current_index);
+        RedisResult res1;
+        con->ExecCmd(cmd,res1);
+        for(int i=0;i<res1.vecdata.size();i++){
+            cmd="hget "+res1.vecdata[i]+" track";
+            RedisResult res2;
+            con->ExecCmd(cmd,res2);
+            vector<pair<double,double>> traj=split_trajectory_points(res2.strdata);
+            int distance=computeDistance(query_traj,traj);
+            if(distance<threshold){
+                TrajectorySimilarity new_element;
+                new_element.trajectoryId=res1.vecdata[i];
+                new_element.similarity=distance;
+                trajectoryQueue.push(new_element);
+                if(trajectoryQueue.size()>k){
+                    trajectoryQueue.pop();
+                    
+                }
+            }      
+        } 
     }
 
 }
