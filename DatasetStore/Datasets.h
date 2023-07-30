@@ -34,7 +34,7 @@ public:
 
 Datasets::Datasets() {
 	total_len = 0;
-	ZRedisConnectionPool::init("127.0.0.1",6379,"123456",2);
+	ZRedisConnectionPool::init("127.0.0.1",6379,"123456",3);
 	con = ZRedisConnectionPool::Get();
 }
 
@@ -108,7 +108,6 @@ bool kmp(string str1, string str2) {
 	if (p2 == str2.size()) return true;
 	else return false;
 }
-
 
 
 void Datasets::Add(string path,shared_ptr<ZRedisConnection> con) {

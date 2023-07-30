@@ -153,9 +153,9 @@ int ZRedisConnection::SelectDb(const int &db)
 
 RedisStatus ZRedisConnection::ExecCmd(const std::string &cmd,RedisResult &res)
 {
-    cout<<cmd<<endl;
+    //cout<<cmd<<endl;
     pm_rr = (redisReply*)redisCommand(pm_rct, cmd.c_str());
-    printf("pm__rr's type is %d\n",pm_rr->type);
+    //printf("pm__rr's type is %d\n",pm_rr->type);
     /*
     REDIS_REPLY_STRING  ： 1 
 　　 REDIS_REPLY_ARRAY ： 2

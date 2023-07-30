@@ -1,15 +1,14 @@
 #pragma once
-#include<string.h>
-#include<string>
 #include<iostream>
-#include <fstream>
-#include <sstream>
 #include<vector>
-#include <sys/stat.h>
+#include<sys/stat.h>
 #include<algorithm>
+#include<fstream>
+#include<string>
 //#include<json/json.h>
 #include<map>
 #include"ZRedisConnectionPool.h"
+#include"DouglasPeucker.h"
 //using namespace Json;
 using namespace std;
 
@@ -33,6 +32,13 @@ public:
 	void visualization();
 };
 
+struct space_index{
+	string order_id;
+	string index;
+	string position_code;
+};
+
+
 size_t getFileSize(const char* fileName) {
 
 	if (fileName == NULL) {
@@ -51,40 +57,100 @@ size_t getFileSize(const char* fileName) {
 
 void Split(const std::string& src, const std::string& separator, std::vector<std::string>& dest) //字符串分割到数组
 {
+	//参数1：要分割的字符串；参数2：作为分隔符的字符；参数3：存放分割后的字符串的vector向量
+	string str = src;
+	string substring;
+	string::size_type start = 0, index;
+    dest.clear();
+	index = str.find_first_of(separator, start);
+	do{
+		if(index != string::npos){
+			substring = str.substr(start, index - start);
+            dest.push_back(substring);
+            start = index + separator.size();
+            index = str.find(separator, start);
+			if (start == string::npos) break;
+		}
 
-//参数1：要分割的字符串；参数2：作为分隔符的字符；参数3：存放分割后的字符串的vector向量
+	}while (index != string::npos);
+	//the last part
+    substring = str.substr(start);
+    dest.push_back(substring);
 
-string str = src;
-string substring;
-string::size_type start = 0, index;
-dest.clear();
-index = str.find_first_of(separator, start);
-do
-{
-if (index != string::npos)
-{
-substring = str.substr(start, index - start);
-dest.push_back(substring);
-start = index + separator.size();
-index = str.find(separator, start);
-if (start == string::npos) break;
 }
-} while (index != string::npos);
 
-//the last part
-substring = str.substr(start);
-dest.push_back(substring);
+vector<space_index> loadInfoFromCSV(const std::string& filename){
+	vector<space_index> res;
 
+    ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file: " << filename << std::endl;
+        return res;
+    }
+
+    string line;
+    while (getline(file, line)){
+		if (!line.empty() && line.back() == '\r') {
+            // 删除最后一个字符
+            line.erase(line.size() - 1);
+        }
+		space_index new_info;
+        vector<string> contents;
+		Split(line," ",contents);
+		new_info.order_id=contents[0];
+		new_info.index=contents[1];
+		new_info.position_code=contents[2];
+        res.push_back(new_info);
+	}
+    return res;
+}
+
+vector<Point> parseStringToPoints(const std::string& input) {
+    std::vector<Point> points;
+    std::istringstream iss(input);
+    std::string pointStr;
+
+    while (std::getline(iss, pointStr, ';')) {
+        std::istringstream pointIss(pointStr);
+        std::string coordinateStr;
+        Point point;
+
+        std::getline(pointIss, coordinateStr, ',');
+        point.x = std::stod(coordinateStr);
+
+        std::getline(pointIss, coordinateStr, ',');
+        point.y = std::stod(coordinateStr);
+
+        points.push_back(point);
+    }
+
+    return points;
+}
+
+string convertPointsToString(const std::vector<Point>& points) {
+    std::ostringstream oss;
+
+    for (const auto& point : points) {
+        oss << point.x << "," << point.y << ";";
+    }
+
+    // 移除最后一个分号
+    std::string result = oss.str();
+    if (!result.empty()) {
+        result.pop_back();
+    }
+
+    return result;
 }
 
 Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 	RedisResult res;
-    RedisStatus status = con->ExecCmd("keys *",res);
+	
+    vector<space_index> space_info=loadInfoFromCSV("output.csv");
 	string file_type_str;
 	int name_index = 0;
 	int type_index = 0;
 	size = getFileSize(path.c_str());
-	cout << size << endl;
 	for (int i = path.length() - 1; i >= 0; i--) {
 		if (path[i] == '.') {
 			file_type_str = path.substr(i + 1, path.length() - 1 - i);
@@ -98,17 +164,14 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 	if (file_type_str == "csv") {
 		File_type file_type = csv;
 		name = path.substr(name_index, type_index - name_index);
+    
 		RedisResult res;
-		string metadata_cmd="hset "+to_string(db_id)+" name"+" "+name;
-		//cout<<metadata_cmd<<endl;
-		con->ExecCmd(metadata_cmd,res);
-
-		
 		string cmd_prefix="zadd "+name+":fields";
 		ifstream infile(path);
 		string line;
 		getline(infile, line);
 		//cout<<"first line is "<<line<<endl;
+		line.pop_back();
 		istringstream sin(line);
 		string field;
 		int score=0;
@@ -126,9 +189,12 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 		string cmd="set "+name+":description "+
 		           "\"This data set provides the data of the motorcycle in Shanghai in August 2017, which has been desensitized for research.\"";
 		con->ExecCmd(cmd,res);
+		cmd="set "+name+":size "+to_string(size);
+		con->ExecCmd(cmd,res);
 		int count = 0;
 		while (getline(infile, line))
 		{
+			
 			istringstream sin(line);
 			vector<string> fields;
 			vector<string> track;
@@ -139,12 +205,13 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 			{	
 				fields.push_back(field);
 			}
+			
 			RedisResult res;
 			string cmd;
 			vector<string> res1;
 			Split(fields[0], ",", res1);
-
-			order_id="order_id:"+res1[0];
+            
+			order_id=space_info[count].index+"#"+res1[0];
 			//order_id为key 
 			string bike_id=res1[1];
 			string user_id=res1[2];
@@ -154,12 +221,12 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 			string end_time=res1[6];
             replace(end_time.begin(),end_time.end(),' ','T');
 
-
+        
 			vector<string> res2;
 			Split(fields[1], "#", res2);
 			string start_loc = res1[4] + "," + res1[5];
 			track.push_back(start_loc);
-			for (int i = 0; i < res1.size(); i++) {
+			for (int i = 0; i < res2.size(); i++) {
 				track.push_back(res2[i]);
 			}
 			string end_loc = res1[7] + "," + res1[8];
@@ -169,7 +236,14 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 				track_str+=track[i]+";";
 			}
 			track_str.pop_back();
+             
+            vector<Point> simplifiedList;
+            double epsilon = 0.001;
+			vector<Point> pointList=parseStringToPoints(track_str);
+			DouglasPeucker(pointList, epsilon, simplifiedList);
+			string simplified_track=convertPointsToString(simplifiedList);
 
+            cout<<order_id<<endl;
 			cmd="hset "+order_id+" bikeid "+bike_id;
 			con->ExecCmd(cmd,res);
 			cmd="hset "+order_id+" userid "+user_id;
@@ -180,30 +254,27 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 			con->ExecCmd(cmd,res);
 			cmd="hset "+order_id+" track "+track_str;
 			con->ExecCmd(cmd,res);
+			cmd="hset "+order_id+" start_location_x "+res1[4];
+			con->ExecCmd(cmd,res);
+			cmd="hset "+order_id+" start_location_y "+res1[5];
+			con->ExecCmd(cmd,res);
+			cmd="hset "+order_id+" end_location_x "+res1[7];
+			con->ExecCmd(cmd,res);
+			cmd="hset "+order_id+" end_location_y "+res1[8];
+			con->ExecCmd(cmd,res);
+			cmd="hset "+order_id+" position_code "+space_info[count].position_code;
+			con->ExecCmd(cmd,res);
+			cmd="hset "+order_id+" simplified_track "+simplified_track;
+			con->ExecCmd(cmd,res);
 			//处理以order_id为key的信息输入
-
-            cmd="sadd bike_id:"+bike_id+" "+order_id;
-            con->ExecCmd(cmd,res);
-            cmd="sadd user_id:"+user_id+" "+order_id;
-            con->ExecCmd(cmd,res);
-            //处理bikeid与userid为key的信息输入 
-
-            if(count==0){
-				vector<vector<string>> grid;
-				vector<string> test;
-			    test.push_back("83");
-				grid.push_back(test);
-			    for(int j=0;j<grid[count].size();j++){
-				   cmd="sadd grid:"+grid[count][j]+" "+order_id;
-				   con->ExecCmd(cmd,res);
-				}
+            
+            if(order_id=="13#1630232"){
+				cout<<"simplified_track is "<<simplified_track<<endl;
+				break;
 			}
-			
-			//处理key为网格id的信息输入
 
 			count++;
-			if(count==1)
-			  break;
+			sin.clear();
 		}
 		record_num = count;
 	}
@@ -249,15 +320,10 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 			fclose(fd);
 		}
 	}
-
-
-
 }
 
 void Dataset::store_dataset() {
-
-
-
+	
 }
 
 void Dataset::load_dataset(string path, string type) {
