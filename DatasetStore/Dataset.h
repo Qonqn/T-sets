@@ -25,7 +25,7 @@ class Dataset {
 	vector<string> example;
 public:
 	string name;
-	Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id);
+	Dataset(string path,string path1,shared_ptr<ZRedisConnection> con,int db_id);
 	void load_dataset(string path, string type);
 	void store_dataset();
 	void print();
@@ -143,14 +143,19 @@ string convertPointsToString(const std::vector<Point>& points) {
     return result;
 }
 
-Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
+Dataset::Dataset(string path,string path1,shared_ptr<ZRedisConnection> con,int db_id) {
+	//path:数据集文件  path1:数据集空间信息文件 db_id:数据库id
 	RedisResult res;
-	
-    vector<space_index> space_info=loadInfoFromCSV("output.csv");
+    vector<space_index> space_info=loadInfoFromCSV(path1);
+	cout<<"space_info's size is "<<space_info.size()<<endl;
+	//读入空间索引和positioncode
+    
+	size = getFileSize(path.c_str());
+	//查看数据集大小
+
 	string file_type_str;
 	int name_index = 0;
-	int type_index = 0;
-	size = getFileSize(path.c_str());
+	int type_index = 0;     
 	for (int i = path.length() - 1; i >= 0; i--) {
 		if (path[i] == '.') {
 			file_type_str = path.substr(i + 1, path.length() - 1 - i);
@@ -161,6 +166,199 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 			break;
 		}
 	}
+	//提取文件格式，当前只处理csv
+	if (file_type_str == "csv") {
+		File_type file_type = csv;
+		name = path.substr(name_index, type_index - name_index);
+    
+		RedisResult res;
+		ifstream infile(path);
+		string line;
+		/*
+		string cmd_prefix="zadd "+name+":fields";
+
+		getline(infile, line);
+		line.pop_back();
+		istringstream sin(line);
+		string field;
+		int score=0;
+
+		while (getline(sin, field, ','))
+		{
+			features.push_back(field);
+			string cmd=cmd_prefix+" "+to_string(score)+" "+field;
+			con->ExecCmd(cmd,res);
+			score++;
+		}
+		//存储csv列属性
+        
+		string cmd="set "+name+":description "+
+		           "\"This data set provides the data of the motorcycle in Shanghai in August 2017, which has been desensitized for research.\"";
+		con->ExecCmd(cmd,res);
+        //存储数据集摘要
+
+		cmd="set "+name+":size "+to_string(size);
+		con->ExecCmd(cmd,res);
+        //存储数据集大小
+        */
+		int count = 0;
+		while (getline(infile, line))
+		{
+			istringstream sin(line);
+			vector<string> fields;
+			vector<string> track;
+			string field;
+			int data_seq=0;
+			string order_id="";
+			while (getline(sin, field, '"'))
+			{	
+				fields.push_back(field);
+			}
+			RedisResult res;
+			string cmd;
+			vector<string> res1;
+			Split(fields[0], ",", res1);
+            
+			order_id=space_info[count].index+"#"+res1[0];
+			//space_info+order_id为key 
+			string start_time=res1[1];
+
+			vector<string> res2;
+			
+			Split(fields[1], "#", res2);
+
+			for (int i = 0; i < res2.size(); i++) {
+				track.push_back(res2[i]);
+			}
+			string track_str="";
+			string start_locx="";
+			string start_locy="";
+			string end_locx="";
+			string end_locy="";
+			for(int i=0;i<track.size();i++){
+				if(i==0){
+					vector<string> start_loc;
+					Split(track[i],",",start_loc);
+                    start_locx=start_loc[0];
+					start_locy=start_loc[1];
+				}
+				if(i==track.size()-1){
+					vector<string> end_loc;
+					Split(track[i],",",end_loc);
+                    end_locx=end_loc[0];
+					end_locy=end_loc[1];
+				}
+				track_str+=track[i]+";";
+			}
+			track_str.pop_back();
+             
+            vector<Point> simplifiedList;
+            double epsilon = 0.001;
+			vector<Point> pointList=parseStringToPoints(track_str);
+			DouglasPeucker(pointList, epsilon, simplifiedList);
+			string simplified_track=convertPointsToString(simplifiedList);
+
+			if(res1[0]!=space_info[count].order_id){
+				cout<<"error"<<endl;
+			}
+			cmd="hset "+order_id+" start_time "+start_time;
+			con->ExecCmd(cmd,res);
+
+			cmd="hset "+order_id+" track "+track_str;
+			con->ExecCmd(cmd,res);
+			
+			cmd="hset "+order_id+" start_location_x "+start_locx;
+			con->ExecCmd(cmd,res);
+			cmd="hset "+order_id+" start_location_y "+start_locy;
+			con->ExecCmd(cmd,res);
+			cmd="hset "+order_id+" end_location_x "+end_locx;
+			con->ExecCmd(cmd,res);
+			cmd="hset "+order_id+" end_location_y "+end_locy;
+			con->ExecCmd(cmd,res);
+			
+			cmd="hset "+order_id+" position_code "+space_info[count].position_code;
+			con->ExecCmd(cmd,res);
+			cmd="hset "+order_id+" simplified_track "+simplified_track;
+			con->ExecCmd(cmd,res);
+			//处理以order_id为key的信息输入
+			if(track_str.size()==0||space_info[count].position_code.size()==0){
+				cout<<order_id<<" error"<<endl;
+			}
+
+			count++;
+			sin.clear();
+		}
+		cout<<count<<endl;
+		record_num = count;
+	}
+	else if (file_type_str == "json") {
+		/*ifstream ifs(path);
+		Reader rd;
+		Value root;
+		rd.parse(ifs, root);
+		if (root.isObject()) {
+			cout << "obj" << endl;
+			Json::Value::Members mem = root.getMemberNames();
+			for (auto iter = mem.begin(); iter != mem.end(); iter++) {
+				printf("%s : ", (*iter).c_str());       // ��ӡ����
+			}
+		}*/
+
+
+	}
+	else if (file_type_str == "txt") {
+		string features_str;
+		cout << "please input the features: " << endl;
+		getline(cin, features_str);
+		istringstream str(features_str);
+		while (str >> features_str) {
+			features.push_back(features_str);
+		}
+
+		FILE* fd;
+		int count = 0;
+		if (fd = fopen(path.c_str(), "r"))
+		{
+			while (!feof(fd))
+			{
+				if ('\n' == fgetc(fd))
+				{
+					count++;
+				}
+			}
+		}
+		record_num = count;
+		if (fd)
+		{
+			fclose(fd);
+		}
+	}
+}
+
+/*
+Dataset::Dataset(string path,string path1,shared_ptr<ZRedisConnection> con,int db_id) {
+	//path:数据集文件  path1:数据集空间信息文件 db_id:数据库id
+	RedisResult res;
+    vector<space_index> space_info=loadInfoFromCSV(path1);   
+	//读入空间索引和positioncode
+    
+	size = getFileSize(path.c_str());
+	//查看数据集大小
+
+	string file_type_str;
+	int name_index = 0;
+	int type_index = 0;     
+	for (int i = path.length() - 1; i >= 0; i--) {
+		if (path[i] == '.') {
+			file_type_str = path.substr(i + 1, path.length() - 1 - i);
+			type_index = i;
+		}
+		if (path[i] == '/') {
+			name_index = i + 1;
+			break;
+		}
+	}
+	//提取文件格式，当前只处理csv
 	if (file_type_str == "csv") {
 		File_type file_type = csv;
 		name = path.substr(name_index, type_index - name_index);
@@ -184,13 +382,17 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 			con->ExecCmd(cmd,res);
 			score++;
 		}
-		//handle features
+		//存储csv列属性
         
 		string cmd="set "+name+":description "+
 		           "\"This data set provides the data of the motorcycle in Shanghai in August 2017, which has been desensitized for research.\"";
 		con->ExecCmd(cmd,res);
+        //存储数据集摘要
+
 		cmd="set "+name+":size "+to_string(size);
 		con->ExecCmd(cmd,res);
+        //存储数据集大小
+
 		int count = 0;
 		while (getline(infile, line))
 		{
@@ -289,7 +491,7 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 			for (auto iter = mem.begin(); iter != mem.end(); iter++) {
 				printf("%s : ", (*iter).c_str());       // ��ӡ����
 			}
-		}*/
+		}
 
 
 	}
@@ -321,6 +523,8 @@ Dataset::Dataset(string path,shared_ptr<ZRedisConnection> con,int db_id) {
 		}
 	}
 }
+*/
+
 
 void Dataset::store_dataset() {
 	

@@ -69,7 +69,12 @@
     "scoped_allocator": "cpp",
     "shared_mutex": "cpp",
     "typeindex": "cpp",
-    "valarray": "cpp"
+    "valarray": "cpp",
+    "any": "cpp",
+    "strstream": "cpp",
+    "source_location": "cpp",
+    "variant": "cpp",
+    "*.ipp": "cpp"
   },
   "C_Cpp_Runner.cCompilerPath": "gcc",
   "C_Cpp_Runner.cppCompilerPath": "g++",

@@ -25,7 +25,7 @@ public:
     shared_ptr<ZRedisConnection> con;
 	Datasets();
 	void Print();
-	void Add(string path,shared_ptr<ZRedisConnection> con);
+	void Add(string path,string space_path,shared_ptr<ZRedisConnection> con);
 	void Delete(string name);
 	vector<Dataset> search_by_name(string key_word);
 	vector<Dataset> search_by_size(int begin,int end);
@@ -110,8 +110,8 @@ bool kmp(string str1, string str2) {
 }
 
 
-void Datasets::Add(string path,shared_ptr<ZRedisConnection> con) {
-	Dataset newdataset(path,con,total_len);
+void Datasets::Add(string path,string space_path,shared_ptr<ZRedisConnection> con) {
+	Dataset newdataset(path,space_path,con,total_len);
 	datasets.push_back(newdataset);
 	total_len++;
 	set<char> char_set;
